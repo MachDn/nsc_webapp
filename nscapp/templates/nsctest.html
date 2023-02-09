@@ -1,0 +1,172 @@
+<html>
+    <head>
+      <link rel="stylesheet" href="https://pyscript.net/alpha/pyscript.css" />
+      <script defer src="https://pyscript.net/alpha/pyscript.js"></script>
+      <py-env>
+        - numpy
+        - matplotlib
+        - paths:
+          - /data.py
+      </py-env>
+    </head>
+
+  <body>
+    
+    <div class="header">
+        <h1>No Sleep Car</h1>
+        <h1>Let's plot random numbers</h1>
+    </div>
+
+    <!--<div class="topnav" align="left">-->
+    <!--  <a href="../">Home</a>-->
+    <!--  <a href="../setting">설정</a>-->
+    <!--  <a href="../mypage">My Page</a>-->
+    <!--  <a href="../login">Log In</a>-->
+    <!--</div>-->
+        <h1>Let's plot random numbers</h1>
+    <div id="plot"></div>
+    <py-script output="plot">
+import cv2, dlib
+import numpy as np
+from imutils import face_utils
+from keras.models import load_model
+import winsound as ws
+import datetime
+import time
+
+IMG_SIZE = (34, 26)
+
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
+
+model = load_model('models/2023_02_05_23_56_22.h5')
+model.summary()
+
+open_start_time = 0
+close_start_time = 0
+
+COUNT = 0
+def beepsound():
+    freq = 2000    # range : 37 ~ 32767
+    dur = 1000     # ms
+    ws.Beep(freq, dur) # winsound.Beep(frequency, duration)
+
+def crop_eye(img, eye_points):
+  x1, y1 = np.amin(eye_points, axis=0)
+  x2, y2 = np.amax(eye_points, axis=0)
+  cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+
+  w = (x2 - x1) * 1.2
+  h = w * IMG_SIZE[1] / IMG_SIZE[0]
+
+  margin_x, margin_y = w / 2, h / 2
+
+  min_x, min_y = int(cx - margin_x), int(cy - margin_y)
+  max_x, max_y = int(cx + margin_x), int(cy + margin_y)
+
+  eye_rect = np.rint([min_x, min_y, max_x, max_y]).astype(np.int)
+
+  eye_img = gray[eye_rect[1]:eye_rect[3], eye_rect[0]:eye_rect[2]]
+
+  return eye_img, eye_rect
+
+# main
+# cap = cv2.VideoCapture('videos/2.mp4')
+lst_l = [] 
+lst_r = []
+lst_b = []
+lst_log = []
+
+video_file = '../CV2/video/sarang1.mp4'
+
+cap = cv2.VideoCapture(0) 
+
+while cap.isOpened():
+  ret, img_ori = cap.read()
+
+  if not ret:
+    break
+
+  img_ori = cv2.resize(img_ori, dsize=(0, 0), fx=0.5, fy=0.5)
+
+  img = img_ori.copy()
+  gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+  faces = detector(gray)
+
+  for face in faces:
+    shapes = predictor(gray, face)
+    shapes = face_utils.shape_to_np(shapes)
+
+    eye_img_l, eye_rect_l = crop_eye(gray, eye_points=shapes[36:42])
+    eye_img_r, eye_rect_r = crop_eye(gray, eye_points=shapes[42:48])
+
+    eye_img_l = cv2.resize(eye_img_l, dsize=IMG_SIZE)
+    eye_img_r = cv2.resize(eye_img_r, dsize=IMG_SIZE)
+    eye_img_r = cv2.flip(eye_img_r, flipCode=1)
+
+    cv2.imshow('l', eye_img_l)
+    cv2.imshow('r', eye_img_r)
+
+    eye_input_l = eye_img_l.copy().reshape((1, IMG_SIZE[1], IMG_SIZE[0], 1)).astype(np.float32) / 255.
+    eye_input_r = eye_img_r.copy().reshape((1, IMG_SIZE[1], IMG_SIZE[0], 1)).astype(np.float32) / 255.
+
+    pred_l = model.predict(eye_input_l)
+    pred_r = model.predict(eye_input_r)
+
+    # visualize
+    state_l = 'O %.1f' if pred_l > 0.1 else '- %.1f'
+    state_r = 'O %.1f' if pred_r > 0.1 else '- %.1f'
+
+    state_l = state_l % pred_l
+    state_r = state_r % pred_r
+
+    state_both = (pred_l + pred_r) / 2
+    
+    cv2.rectangle(img, pt1=tuple(eye_rect_l[0:2]), pt2=tuple(eye_rect_l[2:4]), color=(255,255,255), thickness=2)
+    cv2.rectangle(img, pt1=tuple(eye_rect_r[0:2]), pt2=tuple(eye_rect_r[2:4]), color=(255,255,255), thickness=2)
+
+    cv2.putText(img, state_l, tuple(eye_rect_l[0:2]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+    cv2.putText(img, state_r, tuple(eye_rect_r[0:2]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+
+ 
+    cv2.imshow('result', img)
+    
+
+    close_start_time = time.time()
+    time.sleep(0.4)
+    if float(state_both) >= 0.2 :
+        print('normal')
+    else: 
+        print(close_start_time)
+        t = time.time() - close_start_time
+        
+        print(t)
+        if t >= 0.4:
+            print(beepsound())
+            open_start_time =time.time()
+            print(open_start_time)
+            now = datetime.datetime.now()
+            #print now 
+            print(now.strftime('%Y-%m-%d %H:%M:%S'))
+            lst_log.append(now.strftime('%Y-%m-%d %H:%M:%S'))
+            lst_l.append(state_l)
+            lst_r.append(state_r)
+            lst_b.append(float(state_both))
+            print('sleep')
+            COUNT += 1
+            print(COUNT)
+        else:
+            print('NO')
+    
+    
+  if cv2.waitKey(1) == ord('q'):
+    print(COUNT)
+    print(lst_log)
+    print(lst_l)
+    print(lst_r)
+    print(lst_b)
+    break
+    </py-script>
+  </body>
+</html>
